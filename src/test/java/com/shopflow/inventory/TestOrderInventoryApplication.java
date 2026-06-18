@@ -1,4 +1,4 @@
-package com.shopflow.order_inventory;
+package com.shopflow.inventory;
 
 import org.springframework.boot.SpringApplication;
 
