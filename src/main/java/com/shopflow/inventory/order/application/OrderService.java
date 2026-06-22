@@ -46,18 +46,17 @@ public class OrderService {
                 .stream()
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
 
-        Map<Long, Inventory> inventoriesByProductId = inventoryRepository.findAllByProductIdIn(productIds)
-                .stream()
-                .collect(Collectors.toMap(Inventory::getProductId, Function.identity()));
-
-        validateInventoriesRegistered(command.items(), inventoriesByProductId);
-
         List<OrderItem> orderItems = command
                 .items()
                 .stream()
                 .map(item -> createOrderItem(item, productsById))
                 .toList();
 
+        Map<Long, Inventory> inventoriesByProductId = inventoryRepository.findAllByProductIdIn(productIds)
+                .stream()
+                .collect(Collectors.toMap(Inventory::getProductId, Function.identity()));
+
+        validateInventoriesRegistered(command.items(), inventoriesByProductId);
         reserveInventories(command.items(), inventoriesByProductId);
 
         Order order = Order.create(generateOrderNo(), command.memberId(), orderItems);

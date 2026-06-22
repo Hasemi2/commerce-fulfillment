@@ -12,6 +12,8 @@ public enum ErrorCode {
     INVENTORY_ALREADY_EXISTS(HttpStatus.CONFLICT, "Inventory already exists for this product."),
     NOT_ENOUGH_STOCK(HttpStatus.CONFLICT, "Not enough stock is available."),
     INVALID_ORDER_NO("Order number must not be blank."),
+    ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Order was not found."),
+    INVALID_ORDER_DATE_RANGE("Order date range is invalid."),
     INVALID_MEMBER_ID("Member id is required."),
     INVALID_ORDER_ITEM("Order item is invalid."),
     INVALID_ORDER_STATUS_TRANSITION("Order status transition is not allowed."),
