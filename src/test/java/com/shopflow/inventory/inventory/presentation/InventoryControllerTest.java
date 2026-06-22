@@ -1,15 +1,20 @@
 package com.shopflow.inventory.inventory.presentation;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.shopflow.inventory.inventory.domain.Inventory;
+import com.shopflow.inventory.inventory.domain.InventoryChangeType;
+import com.shopflow.inventory.inventory.domain.InventoryHistory;
+import com.shopflow.inventory.inventory.infrastructure.InventoryHistoryRepository;
 import com.shopflow.inventory.inventory.infrastructure.InventoryRepository;
 import com.shopflow.inventory.product.domain.Product;
 import com.shopflow.inventory.product.infrastructure.ProductRepository;
 import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,6 +36,9 @@ class InventoryControllerTest {
 
     @Autowired
     private InventoryRepository inventoryRepository;
+
+    @Autowired
+    private InventoryHistoryRepository inventoryHistoryRepository;
 
     @BeforeEach
     void setUp() {
@@ -56,6 +64,15 @@ class InventoryControllerTest {
             .andExpect(jsonPath("$.availableQuantity").value(10))
             .andExpect(jsonPath("$.reservedQuantity").value(0))
             .andExpect(jsonPath("$.totalQuantity").value(10));
+
+        List<InventoryHistory> histories = inventoryHistoryRepository
+            .findAllByProductIdOrderByCreatedAtAsc(product.getId());
+        assertEquals(1, histories.size());
+        InventoryHistory history = histories.getFirst();
+        assertEquals(InventoryChangeType.REGISTERED, history.getChangeType());
+        assertEquals(10, history.getQuantity());
+        assertEquals(0, history.getBeforeQuantity());
+        assertEquals(10, history.getAfterQuantity());
     }
 
     @Test

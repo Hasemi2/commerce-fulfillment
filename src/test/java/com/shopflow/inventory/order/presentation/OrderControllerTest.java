@@ -7,11 +7,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.shopflow.inventory.inventory.domain.Inventory;
+import com.shopflow.inventory.inventory.domain.InventoryChangeType;
+import com.shopflow.inventory.inventory.domain.InventoryHistory;
+import com.shopflow.inventory.inventory.infrastructure.InventoryHistoryRepository;
 import com.shopflow.inventory.inventory.infrastructure.InventoryRepository;
+import com.shopflow.inventory.order.domain.Order;
 import com.shopflow.inventory.order.infrastructure.OrderRepository;
 import com.shopflow.inventory.product.domain.Product;
 import com.shopflow.inventory.product.infrastructure.ProductRepository;
 import java.math.BigDecimal;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,6 +41,9 @@ class OrderControllerTest {
 
     @Autowired
     private InventoryRepository inventoryRepository;
+
+    @Autowired
+    private InventoryHistoryRepository inventoryHistoryRepository;
 
     @BeforeEach
     void setUp() {
@@ -81,6 +89,15 @@ class OrderControllerTest {
         assertEquals(2, keyboardInventory.getReservedQuantity());
         assertEquals(4, mouseInventory.getAvailableQuantity());
         assertEquals(1, mouseInventory.getReservedQuantity());
+
+        Order savedOrder = orderRepository.findAll().getFirst();
+        List<InventoryHistory> histories = inventoryHistoryRepository
+            .findAllByOrderIdOrderByCreatedAtAsc(savedOrder.getId());
+        assertEquals(2, histories.size());
+        InventoryHistory keyboardHistory = findHistory(histories, keyboard);
+        InventoryHistory mouseHistory = findHistory(histories, mouse);
+        assertReservationHistory(keyboardHistory, keyboard, savedOrder, 2, 10, 8);
+        assertReservationHistory(mouseHistory, mouse, savedOrder, 1, 5, 4);
     }
 
     @Test
@@ -185,6 +202,14 @@ class OrderControllerTest {
         assertEquals(1, mouseInventory.getAvailableQuantity());
         assertEquals(0, mouseInventory.getReservedQuantity());
         assertEquals(0, orderRepository.count());
+        assertEquals(
+            0,
+            inventoryHistoryRepository.findAllByProductIdOrderByCreatedAtAsc(keyboard.getId()).size()
+        );
+        assertEquals(
+            0,
+            inventoryHistoryRepository.findAllByProductIdOrderByCreatedAtAsc(mouse.getId()).size()
+        );
     }
 
     private Product saveProduct(String name, String price) {
@@ -197,5 +222,28 @@ class OrderControllerTest {
 
     private Inventory getInventory(Product product) {
         return inventoryRepository.findByProductId(product.getId()).orElseThrow();
+    }
+
+    private InventoryHistory findHistory(List<InventoryHistory> histories, Product product) {
+        return histories.stream()
+            .filter(history -> history.getProductId().equals(product.getId()))
+            .findFirst()
+            .orElseThrow();
+    }
+
+    private void assertReservationHistory(
+        InventoryHistory history,
+        Product product,
+        Order order,
+        int quantity,
+        int beforeQuantity,
+        int afterQuantity
+    ) {
+        assertEquals(product.getId(), history.getProductId());
+        assertEquals(order.getId(), history.getOrderId());
+        assertEquals(InventoryChangeType.RESERVED, history.getChangeType());
+        assertEquals(quantity, history.getQuantity());
+        assertEquals(beforeQuantity, history.getBeforeQuantity());
+        assertEquals(afterQuantity, history.getAfterQuantity());
     }
 }

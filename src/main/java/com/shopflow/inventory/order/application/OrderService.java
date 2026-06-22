@@ -3,25 +3,22 @@ package com.shopflow.inventory.order.application;
 import com.shopflow.inventory.common.exception.BusinessException;
 import com.shopflow.inventory.common.exception.ErrorCode;
 import com.shopflow.inventory.inventory.domain.Inventory;
+import com.shopflow.inventory.inventory.domain.InventoryChangeType;
+import com.shopflow.inventory.inventory.domain.InventoryHistory;
+import com.shopflow.inventory.inventory.infrastructure.InventoryHistoryRepository;
 import com.shopflow.inventory.inventory.infrastructure.InventoryRepository;
 import com.shopflow.inventory.order.domain.Order;
 import com.shopflow.inventory.order.domain.OrderItem;
 import com.shopflow.inventory.order.infrastructure.OrderRepository;
 import com.shopflow.inventory.product.domain.Product;
 import com.shopflow.inventory.product.infrastructure.ProductRepository;
-
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
@@ -30,6 +27,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final InventoryRepository inventoryRepository;
+    private final InventoryHistoryRepository inventoryHistoryRepository;
 
     @Transactional
     public Order createOrder(OrderCreateCommand command) {
@@ -57,10 +55,11 @@ public class OrderService {
                 .collect(Collectors.toMap(Inventory::getProductId, Function.identity()));
 
         validateInventoriesRegistered(command.items(), inventoriesByProductId);
-        reserveInventories(command.items(), inventoriesByProductId);
 
         Order order = Order.create(generateOrderNo(), command.memberId(), orderItems);
-        return orderRepository.save(order);
+        Order savedOrder = orderRepository.save(order);
+        reserveInventories(command.items(), inventoriesByProductId, savedOrder.getId());
+        return savedOrder;
     }
 
     private void validateInventoriesRegistered(
@@ -81,9 +80,23 @@ public class OrderService {
 
     private void reserveInventories(
             List<OrderCreateCommand.OrderItemCommand> items,
-            Map<Long, Inventory> inventoriesByProductId
+            Map<Long, Inventory> inventoriesByProductId,
+            Long orderId
     ) {
-        items.forEach(item -> inventoriesByProductId.get(item.productId()).reserve(item.quantity()));
+        for (OrderCreateCommand.OrderItemCommand item : items) {
+            Inventory inventory = inventoriesByProductId.get(item.productId());
+            int beforeQuantity = inventory.getAvailableQuantity();
+            inventory.reserve(item.quantity());
+            inventoryHistoryRepository.save(InventoryHistory.record(
+                item.productId(),
+                orderId,
+                InventoryChangeType.RESERVED,
+                item.quantity(),
+                beforeQuantity,
+                inventory.getAvailableQuantity(),
+                "Order stock reservation"
+            ));
+        }
     }
 
     private OrderItem createOrderItem(

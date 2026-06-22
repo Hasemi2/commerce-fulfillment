@@ -15,9 +15,11 @@ import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Immutable;
 
 @Getter
 @Entity
+@Immutable
 @Table(name = "inventory_histories")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class InventoryHistory {
@@ -91,7 +93,14 @@ public class InventoryHistory {
         if (productId == null) {
             throw new BusinessException(ErrorCode.INVALID_PRODUCT_ID);
         }
-        if (changeType == null || quantity <= 0 || beforeQuantity < 0 || afterQuantity < 0) {
+        if (changeType == null || beforeQuantity < 0 || afterQuantity < 0) {
+            throw new BusinessException(ErrorCode.INVALID_INVENTORY_QUANTITY);
+        }
+        boolean invalidQuantity = changeType == InventoryChangeType.REGISTERED
+            ? quantity < 0
+            : quantity <= 0;
+
+        if (invalidQuantity) {
             throw new BusinessException(ErrorCode.INVALID_INVENTORY_QUANTITY);
         }
     }
