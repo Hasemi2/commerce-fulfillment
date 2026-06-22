@@ -16,7 +16,7 @@ public enum ErrorCode {
     INVALID_ORDER_DATE_RANGE("Order date range is invalid."),
     INVALID_MEMBER_ID("Member id is required."),
     INVALID_ORDER_ITEM("Order item is invalid."),
-    INVALID_ORDER_STATUS_TRANSITION("Order status transition is not allowed."),
+    INVALID_ORDER_STATUS_TRANSITION(HttpStatus.CONFLICT, "Order status transition is not allowed."),
     EMPTY_ORDER_ITEMS("Order must contain at least one item."),
     INVALID_EVENT("Event information is invalid."),
     INVALID_DELIVERY_REQUEST("Delivery request is invalid.");

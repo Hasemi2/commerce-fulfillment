@@ -1,6 +1,7 @@
 package com.shopflow.inventory.order.presentation;
 
 import com.shopflow.inventory.common.response.ErrorResponse;
+import com.shopflow.inventory.order.application.OrderCancellationService;
 import com.shopflow.inventory.order.application.OrderCreateCommand;
 import com.shopflow.inventory.order.application.OrderQueryService;
 import com.shopflow.inventory.order.application.OrderService;
@@ -37,6 +38,7 @@ public class OrderController {
 
     private final OrderService orderService;
     private final OrderQueryService orderQueryService;
+    private final OrderCancellationService orderCancellationService;
 
     @PostMapping
     @Operation(summary = "주문 생성")
@@ -166,5 +168,44 @@ public class OrderController {
         @PathVariable String orderNo
     ) {
         return OrderResponse.from(orderQueryService.getOrder(orderNo));
+    }
+
+    @PostMapping("/{orderNo}/cancel")
+    @Operation(summary = "주문 취소")
+    @ApiResponses({
+        @ApiResponse(
+            responseCode = "200",
+            description = "주문 취소 성공",
+            content = @Content(schema = @Schema(implementation = OrderResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "404",
+            description = "주문 없음",
+            content = @Content(
+                schema = @Schema(implementation = ErrorResponse.class),
+                examples = @ExampleObject(value = """
+                    {"code":"ORDER_NOT_FOUND","message":"Order was not found."}
+                    """)
+            )
+        ),
+        @ApiResponse(
+            responseCode = "409",
+            description = "취소할 수 없는 주문 상태",
+            content = @Content(
+                schema = @Schema(implementation = ErrorResponse.class),
+                examples = @ExampleObject(value = """
+                    {"code":"INVALID_ORDER_STATUS_TRANSITION","message":"Order status transition is not allowed."}
+                    """)
+            )
+        )
+    })
+    public OrderResponse cancelOrder(
+        @Parameter(
+            description = "주문 번호",
+            example = "ORD-550e8400e29b41d4a716446655440000"
+        )
+        @PathVariable String orderNo
+    ) {
+        return OrderResponse.from(orderCancellationService.cancelOrder(orderNo));
     }
 }

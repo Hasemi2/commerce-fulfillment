@@ -46,4 +46,18 @@ class OrderTest {
 
         assertThrows(BusinessException.class, order::complete);
     }
+
+    @Test
+    void failWhenCancelingPaidOrder() {
+        Order order = Order.create(
+            "ORDER-001",
+            10L,
+            List.of(OrderItem.create(1L, "Keyboard", new BigDecimal("49000"), 1))
+        );
+        order.requestPayment();
+        order.pay();
+
+        assertThrows(BusinessException.class, order::cancel);
+        assertEquals(OrderStatus.PAID, order.getStatus());
+    }
 }

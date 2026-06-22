@@ -21,7 +21,7 @@ public enum OrderStatus {
         return switch (this) {
             case CREATED -> EnumSet.of(PAYMENT_PENDING, CANCELED, FAILED);
             case PAYMENT_PENDING -> EnumSet.of(PAID, CANCELED, FAILED);
-            case PAID -> EnumSet.of(DELIVERY_REQUESTED, CANCELED);
+            case PAID -> EnumSet.of(DELIVERY_REQUESTED);
             case DELIVERY_REQUESTED -> EnumSet.of(SHIPPED, FAILED);
             case SHIPPED -> EnumSet.of(COMPLETED);
             case CANCELED, COMPLETED, FAILED -> EnumSet.noneOf(OrderStatus.class);
