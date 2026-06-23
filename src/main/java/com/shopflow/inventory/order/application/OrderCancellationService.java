@@ -10,6 +10,8 @@ import com.shopflow.inventory.inventory.infrastructure.InventoryRepository;
 import com.shopflow.inventory.order.domain.Order;
 import com.shopflow.inventory.order.domain.OrderItem;
 import com.shopflow.inventory.order.infrastructure.OrderRepository;
+import com.shopflow.inventory.outbox.application.OutboxEventAppender;
+import com.shopflow.inventory.outbox.application.payload.OrderCanceledPayload;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -19,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import static com.shopflow.inventory.common.exception.ErrorCode.ORDER_NOT_FOUND;
+import static com.shopflow.inventory.outbox.domain.AggregateType.ORDER;
+import static com.shopflow.inventory.outbox.domain.EventType.ORDER_CANCELED;
 
 @RequiredArgsConstructor
 @Service
@@ -27,6 +31,7 @@ public class OrderCancellationService {
     private final OrderRepository orderRepository;
     private final InventoryRepository inventoryRepository;
     private final InventoryHistoryRepository inventoryHistoryRepository;
+    private final OutboxEventAppender outboxEventAppender;
 
     @Transactional
     public Order cancelOrder(String orderNo) {
@@ -46,6 +51,13 @@ public class OrderCancellationService {
 
         validateInventoriesRegistered(productIds, inventoriesByProductId);
         restoreReservedInventories(order, inventoriesByProductId);
+
+        outboxEventAppender.append(
+            ORDER,
+            order.getOrderNo(),
+            ORDER_CANCELED,
+            OrderCanceledPayload.from(order)
+        );
         return order;
     }
 

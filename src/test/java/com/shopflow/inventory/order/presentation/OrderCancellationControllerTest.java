@@ -1,6 +1,7 @@
 package com.shopflow.inventory.order.presentation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,6 +16,11 @@ import com.shopflow.inventory.order.application.OrderService;
 import com.shopflow.inventory.order.domain.Order;
 import com.shopflow.inventory.order.domain.OrderStatus;
 import com.shopflow.inventory.order.infrastructure.OrderRepository;
+import com.shopflow.inventory.outbox.domain.AggregateType;
+import com.shopflow.inventory.outbox.domain.EventType;
+import com.shopflow.inventory.outbox.domain.OutboxEvent;
+import com.shopflow.inventory.outbox.domain.OutboxEventStatus;
+import com.shopflow.inventory.outbox.infrastructure.OutboxEventRepository;
 import com.shopflow.inventory.product.domain.Product;
 import com.shopflow.inventory.product.infrastructure.ProductRepository;
 import java.math.BigDecimal;
@@ -49,8 +55,12 @@ class OrderCancellationControllerTest {
     @Autowired
     private InventoryHistoryRepository inventoryHistoryRepository;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
     @BeforeEach
     void setUp() {
+        outboxEventRepository.deleteAll();
         orderRepository.deleteAll();
         inventoryRepository.deleteAll();
         productRepository.deleteAll();
@@ -84,6 +94,21 @@ class OrderCancellationControllerTest {
         assertEquals(3, restoredHistory.getQuantity());
         assertEquals(7, restoredHistory.getBeforeQuantity());
         assertEquals(10, restoredHistory.getAfterQuantity());
+
+        List<OutboxEvent> outboxEvents = outboxEventRepository
+            .findAllByAggregateIdOrderByCreatedAtAsc(order.getOrderNo());
+        assertEquals(2, outboxEvents.size());
+
+        OutboxEvent canceledEvent = outboxEvents.stream()
+            .filter(event -> event.getEventType() == EventType.ORDER_CANCELED)
+            .findFirst()
+            .orElseThrow();
+        assertEquals(AggregateType.ORDER, canceledEvent.getAggregateType());
+        assertEquals(order.getOrderNo(), canceledEvent.getAggregateId());
+        assertEquals(OutboxEventStatus.INIT, canceledEvent.getStatus());
+        assertTrue(canceledEvent.getPayload().contains("\"orderId\":" + order.getId()));
+        assertTrue(canceledEvent.getPayload().contains("\"status\":\"CANCELED\""));
+        assertTrue(canceledEvent.getPayload().contains("\"canceledAt\":"));
     }
 
     @Test
@@ -106,6 +131,10 @@ class OrderCancellationControllerTest {
             2,
             inventoryHistoryRepository.findAllByOrderIdOrderByCreatedAtAsc(order.getId()).size()
         );
+        assertEquals(
+            2,
+            outboxEventRepository.findAllByAggregateIdOrderByCreatedAtAsc(order.getOrderNo()).size()
+        );
     }
 
     @Test
@@ -114,6 +143,8 @@ class OrderCancellationControllerTest {
         mockMvc.perform(post("/api/orders/{orderNo}/cancel", "ORD-NOT-FOUND"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
+
+        assertEquals(0, outboxEventRepository.count());
     }
 
     private Product saveProduct() {

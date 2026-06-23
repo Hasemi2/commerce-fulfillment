@@ -1,6 +1,7 @@
 package com.shopflow.inventory.order.presentation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -13,6 +14,11 @@ import com.shopflow.inventory.inventory.infrastructure.InventoryHistoryRepositor
 import com.shopflow.inventory.inventory.infrastructure.InventoryRepository;
 import com.shopflow.inventory.order.domain.Order;
 import com.shopflow.inventory.order.infrastructure.OrderRepository;
+import com.shopflow.inventory.outbox.domain.AggregateType;
+import com.shopflow.inventory.outbox.domain.EventType;
+import com.shopflow.inventory.outbox.domain.OutboxEvent;
+import com.shopflow.inventory.outbox.domain.OutboxEventStatus;
+import com.shopflow.inventory.outbox.infrastructure.OutboxEventRepository;
 import com.shopflow.inventory.product.domain.Product;
 import com.shopflow.inventory.product.infrastructure.ProductRepository;
 import java.math.BigDecimal;
@@ -45,8 +51,12 @@ class OrderControllerTest {
     @Autowired
     private InventoryHistoryRepository inventoryHistoryRepository;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
     @BeforeEach
     void setUp() {
+        outboxEventRepository.deleteAll();
         orderRepository.deleteAll();
         inventoryRepository.deleteAll();
         productRepository.deleteAll();
@@ -98,6 +108,14 @@ class OrderControllerTest {
         InventoryHistory mouseHistory = findHistory(histories, mouse);
         assertReservationHistory(keyboardHistory, keyboard, savedOrder, 2, 10, 8);
         assertReservationHistory(mouseHistory, mouse, savedOrder, 1, 5, 4);
+
+        OutboxEvent outboxEvent = outboxEventRepository.findAll().getFirst();
+        assertEquals(AggregateType.ORDER, outboxEvent.getAggregateType());
+        assertEquals(savedOrder.getOrderNo(), outboxEvent.getAggregateId());
+        assertEquals(EventType.ORDER_CREATED, outboxEvent.getEventType());
+        assertEquals(OutboxEventStatus.INIT, outboxEvent.getStatus());
+        assertTrue(outboxEvent.getPayload().contains("\"orderId\":" + savedOrder.getId()));
+        assertTrue(outboxEvent.getPayload().contains("\"orderNo\":\"" + savedOrder.getOrderNo() + "\""));
     }
 
     @Test
@@ -171,6 +189,7 @@ class OrderControllerTest {
             .andExpect(jsonPath("$.code").value("INVENTORY_NOT_REGISTERED"));
 
         assertEquals(0, orderRepository.count());
+        assertEquals(0, outboxEventRepository.count());
     }
 
     @Test

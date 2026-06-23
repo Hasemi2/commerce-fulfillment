@@ -10,6 +10,8 @@ import com.shopflow.inventory.inventory.infrastructure.InventoryRepository;
 import com.shopflow.inventory.order.domain.Order;
 import com.shopflow.inventory.order.domain.OrderItem;
 import com.shopflow.inventory.order.infrastructure.OrderRepository;
+import com.shopflow.inventory.outbox.application.OutboxEventAppender;
+import com.shopflow.inventory.outbox.application.payload.OrderCreatedPayload;
 import com.shopflow.inventory.product.domain.Product;
 import com.shopflow.inventory.product.infrastructure.ProductRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,9 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.shopflow.inventory.outbox.domain.AggregateType.ORDER;
+import static com.shopflow.inventory.outbox.domain.EventType.ORDER_CREATED;
+
 @RequiredArgsConstructor
 @Service
 public class OrderService {
@@ -28,6 +33,7 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final InventoryRepository inventoryRepository;
     private final InventoryHistoryRepository inventoryHistoryRepository;
+    private final OutboxEventAppender outboxEventAppender;
 
     @Transactional
     public Order createOrder(OrderCreateCommand command) {
@@ -56,9 +62,22 @@ public class OrderService {
 
         validateInventoriesRegistered(command.items(), inventoriesByProductId);
 
-        Order order = Order.create(generateOrderNo(), command.memberId(), orderItems);
-        Order savedOrder = orderRepository.save(order);
+        //주문생성
+        Order savedOrder = orderRepository.save(
+                Order.create(generateOrderNo(), command.memberId(), orderItems)
+        );
+
+        //재고선점
         reserveInventories(command.items(), inventoriesByProductId, savedOrder.getId());
+
+        // Outbox 저장 (비즈니스 이벤트 + 발행 상태 관리)
+        outboxEventAppender.append(
+                ORDER,
+                savedOrder.getOrderNo(),
+                ORDER_CREATED,
+                OrderCreatedPayload.from(savedOrder)
+        );
+
         return savedOrder;
     }
 
@@ -71,6 +90,7 @@ public class OrderService {
                 .filter(productId -> !inventoriesByProductId.containsKey(productId))
                 .findFirst()
                 .ifPresent(productId -> {
+
                     throw new BusinessException(
                             ErrorCode.INVENTORY_NOT_REGISTERED,
                             "Inventory is not registered for product: " + productId
@@ -88,13 +108,13 @@ public class OrderService {
             int beforeQuantity = inventory.getAvailableQuantity();
             inventory.reserve(item.quantity());
             inventoryHistoryRepository.save(InventoryHistory.record(
-                item.productId(),
-                orderId,
-                InventoryChangeType.RESERVED,
-                item.quantity(),
-                beforeQuantity,
-                inventory.getAvailableQuantity(),
-                "Order stock reservation"
+                    item.productId(),
+                    orderId,
+                    InventoryChangeType.RESERVED,
+                    item.quantity(),
+                    beforeQuantity,
+                    inventory.getAvailableQuantity(),
+                    "Order stock reservation"
             ));
         }
     }
