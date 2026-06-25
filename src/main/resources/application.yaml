@@ -28,8 +28,27 @@ spring:
   flyway:
     enabled: false
 
+  kafka:
+    bootstrap-servers: 172.23.34.188:9092
+    consumer:
+      group-id: order-inventory
+      auto-offset-reset: earliest
+    producer:
+      acks: all
+
 server:
   port: 8080
+
+shopflow:
+  kafka:
+    topics:
+      order-events: shopflow.order-events
+  outbox:
+    publisher:
+      scheduler:
+        enabled: true
+        fixed-delay-ms: 1000
+        initial-delay-ms: 3000
 
 logging:
   level:
