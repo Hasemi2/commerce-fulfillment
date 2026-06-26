@@ -27,6 +27,18 @@ public class KafkaConfig {
     @Value("${spring.kafka.consumer.group-id:order-inventory}")
     private String consumerGroupId;
 
+    @Value("${spring.kafka.producer.retries:1}")
+    private int producerRetries;
+
+    @Value("${spring.kafka.producer.properties.max.block.ms:1000}")
+    private int producerMaxBlockMs;
+
+    @Value("${spring.kafka.producer.properties.request.timeout.ms:1000}")
+    private int producerRequestTimeoutMs;
+
+    @Value("${spring.kafka.producer.properties.delivery.timeout.ms:3000}")
+    private int producerDeliveryTimeoutMs;
+
     @Bean
     public ProducerFactory<String, String> producerFactory() {
         Map<String, Object> props = new HashMap<>();
@@ -35,7 +47,10 @@ public class KafkaConfig {
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
-        props.put(ProducerConfig.RETRIES_CONFIG, 3);
+        props.put(ProducerConfig.RETRIES_CONFIG, producerRetries);
+        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, producerMaxBlockMs);
+        props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, producerRequestTimeoutMs);
+        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, producerDeliveryTimeoutMs);
         return new DefaultKafkaProducerFactory<>(props);
     }
 

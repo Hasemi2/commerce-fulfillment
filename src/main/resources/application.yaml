@@ -35,6 +35,11 @@ spring:
       auto-offset-reset: earliest
     producer:
       acks: all
+      retries: 1
+      properties:
+        max.block.ms: 1000
+        request.timeout.ms: 1000
+        delivery.timeout.ms: 3000
 
 server:
   port: 8080
@@ -45,6 +50,7 @@ shopflow:
       order-events: shopflow.order-events
   outbox:
     publisher:
+      max-retry-count: 3
       scheduler:
         enabled: true
         fixed-delay-ms: 1000
