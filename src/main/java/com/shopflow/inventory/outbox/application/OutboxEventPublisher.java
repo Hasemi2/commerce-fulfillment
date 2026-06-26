@@ -1,6 +1,7 @@
 package com.shopflow.inventory.outbox.application;
 
 import static com.shopflow.inventory.outbox.domain.AggregateType.ORDER;
+import static com.shopflow.inventory.outbox.domain.OutboxEventStatus.FAILED;
 import static com.shopflow.inventory.outbox.domain.OutboxEventStatus.INIT;
 
 import com.shopflow.inventory.outbox.application.message.OutboxEventMessage;
@@ -26,15 +27,24 @@ public class OutboxEventPublisher {
     @Value("${shopflow.kafka.topics.order-events}")
     private String orderEventsTopic;
 
+    @Value("${shopflow.outbox.publisher.max-retry-count:3}")
+    private int maxRetryCount;
+
     @Transactional
     public int publishPendingEvents() {
-        List<OutboxEvent> events = outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(INIT);
+        List<OutboxEvent> events = outboxEventRepository.findTop100ByStatusInOrderByCreatedAtAsc(List.of(INIT, FAILED));
         events.forEach(this::publish);
         return events.size();
     }
 
     private void publish(OutboxEvent event) {
+        if (event.getRetryCount() >= maxRetryCount) {
+            event.markDeadLetter("Outbox publish retry count exceeded.");
+            return;
+        }
+
         try {
+            event.markRetrying();
             String message = payloadSerializer.serialize(OutboxEventMessage.from(event));
             kafkaTemplate
                 .send(resolveTopic(event), event.getAggregateId(), message)
@@ -47,6 +57,10 @@ public class OutboxEventPublisher {
             event.markFailed(resolveFailureMessage(e.getCause()));
         } catch (Exception e) {
             event.markFailed(resolveFailureMessage(e));
+        }
+
+        if (event.getRetryCount() >= maxRetryCount && event.getPublishedAt() == null) {
+            event.markDeadLetter(event.getLastErrorMessage());
         }
     }
 

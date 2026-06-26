@@ -2,6 +2,7 @@ package com.shopflow.inventory.outbox.application;
 
 import static com.shopflow.inventory.outbox.domain.AggregateType.ORDER;
 import static com.shopflow.inventory.outbox.domain.EventType.ORDER_CREATED;
+import static com.shopflow.inventory.outbox.domain.OutboxEventStatus.DEAD_LETTER;
 import static com.shopflow.inventory.outbox.domain.OutboxEventStatus.FAILED;
 import static com.shopflow.inventory.outbox.domain.OutboxEventStatus.INIT;
 import static com.shopflow.inventory.outbox.domain.OutboxEventStatus.PUBLISHED;
@@ -9,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -51,6 +53,7 @@ class OutboxEventPublisherTest {
     void setUp() {
         outboxEventPublisher = new OutboxEventPublisher(outboxEventRepository, kafkaTemplate, payloadSerializer);
         ReflectionTestUtils.setField(outboxEventPublisher, "orderEventsTopic", ORDER_EVENTS_TOPIC);
+        ReflectionTestUtils.setField(outboxEventPublisher, "maxRetryCount", 3);
     }
 
     @Test
@@ -58,7 +61,8 @@ class OutboxEventPublisherTest {
         OutboxEvent event = createPersistedOrderCreatedEvent();
         CompletableFuture<SendResult<String, String>> result = CompletableFuture.completedFuture(null);
 
-        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(INIT)).thenReturn(List.of(event));
+        when(outboxEventRepository.findTop100ByStatusInOrderByCreatedAtAsc(List.of(INIT, FAILED)))
+            .thenReturn(List.of(event));
         when(payloadSerializer.serialize(any(OutboxEventMessage.class))).thenReturn(KAFKA_MESSAGE);
         when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(result);
 
@@ -87,7 +91,8 @@ class OutboxEventPublisherTest {
             new RuntimeException("broker down")
         );
 
-        when(outboxEventRepository.findTop100ByStatusOrderByCreatedAtAsc(INIT)).thenReturn(List.of(event));
+        when(outboxEventRepository.findTop100ByStatusInOrderByCreatedAtAsc(List.of(INIT, FAILED)))
+            .thenReturn(List.of(event));
         when(payloadSerializer.serialize(any(OutboxEventMessage.class))).thenReturn(KAFKA_MESSAGE);
         when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(result);
 
@@ -96,6 +101,65 @@ class OutboxEventPublisherTest {
         assertEquals(1, publishedCount);
         assertEquals(FAILED, event.getStatus());
         assertEquals(1, event.getRetryCount());
+        assertEquals("broker down", event.getLastErrorMessage());
+    }
+
+    @Test
+    void publishPendingEventsRetriesFailedEvent() {
+        OutboxEvent event = createPersistedOrderCreatedEvent();
+        event.markFailed("previous failure");
+        CompletableFuture<SendResult<String, String>> result = CompletableFuture.completedFuture(null);
+
+        when(outboxEventRepository.findTop100ByStatusInOrderByCreatedAtAsc(List.of(INIT, FAILED)))
+            .thenReturn(List.of(event));
+        when(payloadSerializer.serialize(any(OutboxEventMessage.class))).thenReturn(KAFKA_MESSAGE);
+        when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(result);
+
+        int publishedCount = outboxEventPublisher.publishPendingEvents();
+
+        assertEquals(1, publishedCount);
+        assertEquals(PUBLISHED, event.getStatus());
+        assertEquals(1, event.getRetryCount());
+        verify(kafkaTemplate).send(ORDER_EVENTS_TOPIC, "ORD-1", KAFKA_MESSAGE);
+    }
+
+    @Test
+    void publishPendingEventsMarksDeadLetterWhenRetryCountExceeded() {
+        OutboxEvent event = createPersistedOrderCreatedEvent();
+        event.markFailed("first failure");
+        event.markFailed("second failure");
+        event.markFailed("third failure");
+
+        when(outboxEventRepository.findTop100ByStatusInOrderByCreatedAtAsc(List.of(INIT, FAILED)))
+            .thenReturn(List.of(event));
+
+        int publishedCount = outboxEventPublisher.publishPendingEvents();
+
+        assertEquals(1, publishedCount);
+        assertEquals(DEAD_LETTER, event.getStatus());
+        assertEquals("Outbox publish retry count exceeded.", event.getLastErrorMessage());
+        verify(kafkaTemplate, never()).send(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void publishPendingEventsMarksDeadLetterWhenLastRetryFails() {
+        OutboxEvent event = createPersistedOrderCreatedEvent();
+        event.markFailed("first failure");
+        event.markFailed("second failure");
+        CompletableFuture<SendResult<String, String>> result = CompletableFuture.failedFuture(
+            new RuntimeException("broker down")
+        );
+
+        when(outboxEventRepository.findTop100ByStatusInOrderByCreatedAtAsc(List.of(INIT, FAILED)))
+            .thenReturn(List.of(event));
+        when(payloadSerializer.serialize(any(OutboxEventMessage.class))).thenReturn(KAFKA_MESSAGE);
+        when(kafkaTemplate.send(anyString(), anyString(), anyString())).thenReturn(result);
+
+        int publishedCount = outboxEventPublisher.publishPendingEvents();
+
+        assertEquals(1, publishedCount);
+        assertEquals(DEAD_LETTER, event.getStatus());
+        assertEquals(3, event.getRetryCount());
         assertEquals("broker down", event.getLastErrorMessage());
     }
 
