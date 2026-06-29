@@ -35,7 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class OrderCancellationControllerTest {
+class OrderPaymentControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -67,65 +67,65 @@ class OrderCancellationControllerTest {
     }
 
     @Test
-    @DisplayName("주문 취소 시 선점 재고 복구 및 이력 저장")
-    void cancelOrderAndRestoreReservedInventory() throws Exception {
+    @DisplayName("Order payment deducts reserved stock and stores outbox event")
+    void payOrderAndDeductReservedInventory() throws Exception {
         Product product = saveProduct();
         inventoryRepository.save(Inventory.create(product.getId(), 10));
         Order order = createOrder(product, 3);
 
-        mockMvc.perform(post("/api/orders/{orderNo}/cancel", order.getOrderNo()))
+        mockMvc.perform(post("/api/orders/{orderNo}/pay", order.getOrderNo()))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.orderNo").value(order.getOrderNo()))
-            .andExpect(jsonPath("$.status").value("CANCELED"));
+            .andExpect(jsonPath("$.status").value("PAID"));
 
-        Order canceledOrder = orderRepository.findByOrderNo(order.getOrderNo()).orElseThrow();
-        Inventory restoredInventory = inventoryRepository.findByProductId(product.getId()).orElseThrow();
-        assertEquals(OrderStatus.CANCELED, canceledOrder.getStatus());
-        assertEquals(10, restoredInventory.getAvailableQuantity());
-        assertEquals(0, restoredInventory.getReservedQuantity());
+        Order paidOrder = orderRepository.findByOrderNo(order.getOrderNo()).orElseThrow();
+        Inventory inventory = inventoryRepository.findByProductId(product.getId()).orElseThrow();
+        assertEquals(OrderStatus.PAID, paidOrder.getStatus());
+        assertEquals(7, inventory.getAvailableQuantity());
+        assertEquals(0, inventory.getReservedQuantity());
 
         List<InventoryHistory> histories = inventoryHistoryRepository
             .findAllByOrderIdOrderByCreatedAtAsc(order.getId());
         assertEquals(2, histories.size());
-        InventoryHistory restoredHistory = histories.stream()
-            .filter(history -> history.getChangeType() == InventoryChangeType.RESTORED)
+        InventoryHistory deductedHistory = histories.stream()
+            .filter(history -> history.getChangeType() == InventoryChangeType.DEDUCTED)
             .findFirst()
             .orElseThrow();
-        assertEquals(3, restoredHistory.getQuantity());
-        assertEquals(10, restoredHistory.getBeforeQuantity());
-        assertEquals(10, restoredHistory.getAfterQuantity());
+        assertEquals(3, deductedHistory.getQuantity());
+        assertEquals(10, deductedHistory.getBeforeQuantity());
+        assertEquals(7, deductedHistory.getAfterQuantity());
 
         List<OutboxEvent> outboxEvents = outboxEventRepository
             .findAllByAggregateIdOrderByCreatedAtAsc(order.getOrderNo());
         assertEquals(2, outboxEvents.size());
 
-        OutboxEvent canceledEvent = outboxEvents.stream()
-            .filter(event -> event.getEventType() == EventType.ORDER_CANCELED)
+        OutboxEvent paidEvent = outboxEvents.stream()
+            .filter(event -> event.getEventType() == EventType.ORDER_PAID)
             .findFirst()
             .orElseThrow();
-        assertEquals(AggregateType.ORDER, canceledEvent.getAggregateType());
-        assertEquals(order.getOrderNo(), canceledEvent.getAggregateId());
-        assertEquals(OutboxEventStatus.INIT, canceledEvent.getStatus());
-        assertTrue(canceledEvent.getPayload().contains("\"orderId\":" + order.getId()));
-        assertTrue(canceledEvent.getPayload().contains("\"status\":\"CANCELED\""));
-        assertTrue(canceledEvent.getPayload().contains("\"canceledAt\":"));
+        assertEquals(AggregateType.ORDER, paidEvent.getAggregateType());
+        assertEquals(order.getOrderNo(), paidEvent.getAggregateId());
+        assertEquals(OutboxEventStatus.INIT, paidEvent.getStatus());
+        assertTrue(paidEvent.getPayload().contains("\"orderId\":" + order.getId()));
+        assertTrue(paidEvent.getPayload().contains("\"status\":\"PAID\""));
+        assertTrue(paidEvent.getPayload().contains("\"paidAt\":"));
     }
 
     @Test
-    @DisplayName("이미 취소된 주문은 다시 취소할 수 없다")
-    void failWhenOrderIsAlreadyCanceled() throws Exception {
+    @DisplayName("Already paid order cannot be paid again")
+    void failWhenOrderIsAlreadyPaid() throws Exception {
         Product product = saveProduct();
         inventoryRepository.save(Inventory.create(product.getId(), 10));
         Order order = createOrder(product, 3);
-        mockMvc.perform(post("/api/orders/{orderNo}/cancel", order.getOrderNo()))
+        mockMvc.perform(post("/api/orders/{orderNo}/pay", order.getOrderNo()))
             .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/orders/{orderNo}/cancel", order.getOrderNo()))
+        mockMvc.perform(post("/api/orders/{orderNo}/pay", order.getOrderNo()))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS_TRANSITION"));
 
         Inventory inventory = inventoryRepository.findByProductId(product.getId()).orElseThrow();
-        assertEquals(10, inventory.getAvailableQuantity());
+        assertEquals(7, inventory.getAvailableQuantity());
         assertEquals(0, inventory.getReservedQuantity());
         assertEquals(
             2,
@@ -138,9 +138,9 @@ class OrderCancellationControllerTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 주문번호 취소는 실패")
+    @DisplayName("Paying a missing order fails")
     void failWhenOrderDoesNotExist() throws Exception {
-        mockMvc.perform(post("/api/orders/{orderNo}/cancel", "ORD-NOT-FOUND"))
+        mockMvc.perform(post("/api/orders/{orderNo}/pay", "ORD-NOT-FOUND"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"));
 

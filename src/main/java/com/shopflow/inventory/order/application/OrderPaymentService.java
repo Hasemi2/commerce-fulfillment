@@ -1,5 +1,9 @@
 package com.shopflow.inventory.order.application;
 
+import static com.shopflow.inventory.common.exception.ErrorCode.ORDER_NOT_FOUND;
+import static com.shopflow.inventory.outbox.domain.AggregateType.ORDER;
+import static com.shopflow.inventory.outbox.domain.EventType.ORDER_PAID;
+
 import com.shopflow.inventory.common.exception.BusinessException;
 import com.shopflow.inventory.common.exception.ErrorCode;
 import com.shopflow.inventory.inventory.domain.Inventory;
@@ -9,9 +13,10 @@ import com.shopflow.inventory.inventory.infrastructure.InventoryHistoryRepositor
 import com.shopflow.inventory.inventory.infrastructure.InventoryRepository;
 import com.shopflow.inventory.order.domain.Order;
 import com.shopflow.inventory.order.domain.OrderItem;
+import com.shopflow.inventory.order.domain.OrderStatus;
 import com.shopflow.inventory.order.infrastructure.OrderRepository;
 import com.shopflow.inventory.outbox.application.OutboxEventAppender;
-import com.shopflow.inventory.outbox.application.payload.OrderCanceledPayload;
+import com.shopflow.inventory.outbox.application.payload.OrderPaidPayload;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -20,13 +25,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import static com.shopflow.inventory.common.exception.ErrorCode.ORDER_NOT_FOUND;
-import static com.shopflow.inventory.outbox.domain.AggregateType.ORDER;
-import static com.shopflow.inventory.outbox.domain.EventType.ORDER_CANCELED;
-
 @RequiredArgsConstructor
 @Service
-public class OrderCancellationService {
+public class OrderPaymentService {
 
     private final OrderRepository orderRepository;
     private final InventoryRepository inventoryRepository;
@@ -34,11 +35,11 @@ public class OrderCancellationService {
     private final OutboxEventAppender outboxEventAppender;
 
     @Transactional
-    public Order cancelOrder(String orderNo) {
+    public Order payOrder(String orderNo) {
         Order order = orderRepository.findByOrderNo(orderNo)
             .orElseThrow(() -> new BusinessException(ORDER_NOT_FOUND));
 
-        order.cancel();
+        pay(order);
 
         List<Long> productIds = order.getItems().stream()
             .map(OrderItem::getProductId)
@@ -50,15 +51,22 @@ public class OrderCancellationService {
             .collect(Collectors.toMap(Inventory::getProductId, Function.identity()));
 
         validateInventoriesRegistered(productIds, inventoriesByProductId);
-        restoreReservedInventories(order, inventoriesByProductId);
+        deductReservedInventories(order, inventoriesByProductId);
 
         outboxEventAppender.append(
             ORDER,
             order.getOrderNo(),
-            ORDER_CANCELED,
-            OrderCanceledPayload.from(order)
+            ORDER_PAID,
+            OrderPaidPayload.from(order)
         );
         return order;
+    }
+
+    private void pay(Order order) {
+        if (order.getStatus() == OrderStatus.CREATED) {
+            order.requestPayment();
+        }
+        order.pay();
     }
 
     private void validateInventoriesRegistered(
@@ -76,24 +84,23 @@ public class OrderCancellationService {
             });
     }
 
-    private void restoreReservedInventories(
+    private void deductReservedInventories(
         Order order,
         Map<Long, Inventory> inventoriesByProductId
     ) {
         for (OrderItem item : order.getItems()) {
-
             Inventory inventory = inventoriesByProductId.get(item.getProductId());
             int beforeQuantity = inventory.getTotalQuantity();
-            inventory.restoreReserved(item.getQuantity());
+            inventory.deductReserved(item.getQuantity());
 
             inventoryHistoryRepository.save(InventoryHistory.record(
                 item.getProductId(),
                 order.getId(),
-                InventoryChangeType.RESTORED,
+                InventoryChangeType.DEDUCTED,
                 item.getQuantity(),
                 beforeQuantity,
                 inventory.getTotalQuantity(),
-                "Order cancellation stock restoration"
+                "Order payment stock deduction"
             ));
         }
     }

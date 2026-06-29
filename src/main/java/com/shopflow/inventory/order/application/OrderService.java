@@ -105,7 +105,7 @@ public class OrderService {
     ) {
         for (OrderCreateCommand.OrderItemCommand item : items) {
             Inventory inventory = inventoriesByProductId.get(item.productId());
-            int beforeQuantity = inventory.getAvailableQuantity();
+            int beforeQuantity = inventory.getTotalQuantity();
             inventory.reserve(item.quantity());
             inventoryHistoryRepository.save(InventoryHistory.record(
                     item.productId(),
@@ -113,7 +113,7 @@ public class OrderService {
                     InventoryChangeType.RESERVED,
                     item.quantity(),
                     beforeQuantity,
-                    inventory.getAvailableQuantity(),
+                    inventory.getTotalQuantity(),
                     "Order stock reservation"
             ));
         }

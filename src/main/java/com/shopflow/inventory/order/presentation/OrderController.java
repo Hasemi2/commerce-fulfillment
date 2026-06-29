@@ -3,6 +3,7 @@ package com.shopflow.inventory.order.presentation;
 import com.shopflow.inventory.common.response.ErrorResponse;
 import com.shopflow.inventory.order.application.OrderCancellationService;
 import com.shopflow.inventory.order.application.OrderCreateCommand;
+import com.shopflow.inventory.order.application.OrderPaymentService;
 import com.shopflow.inventory.order.application.OrderQueryService;
 import com.shopflow.inventory.order.application.OrderService;
 import com.shopflow.inventory.order.domain.Order;
@@ -39,6 +40,7 @@ public class OrderController {
     private final OrderService orderService;
     private final OrderQueryService orderQueryService;
     private final OrderCancellationService orderCancellationService;
+    private final OrderPaymentService orderPaymentService;
 
     @PostMapping
     @Operation(summary = "주문 생성")
@@ -168,6 +170,45 @@ public class OrderController {
         @PathVariable String orderNo
     ) {
         return OrderResponse.from(orderQueryService.getOrder(orderNo));
+    }
+
+    @PostMapping("/{orderNo}/pay")
+    @Operation(summary = "Complete order payment")
+    @ApiResponses({
+        @ApiResponse(
+            responseCode = "200",
+            description = "Order payment completed",
+            content = @Content(schema = @Schema(implementation = OrderResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "404",
+            description = "Order was not found",
+            content = @Content(
+                schema = @Schema(implementation = ErrorResponse.class),
+                examples = @ExampleObject(value = """
+                    {"code":"ORDER_NOT_FOUND","message":"Order was not found."}
+                    """)
+            )
+        ),
+        @ApiResponse(
+            responseCode = "409",
+            description = "Order status transition is not allowed",
+            content = @Content(
+                schema = @Schema(implementation = ErrorResponse.class),
+                examples = @ExampleObject(value = """
+                    {"code":"INVALID_ORDER_STATUS_TRANSITION","message":"Order status transition is not allowed."}
+                    """)
+            )
+        )
+    })
+    public OrderResponse payOrder(
+        @Parameter(
+            description = "Order number",
+            example = "ORD-550e8400e29b41d4a716446655440000"
+        )
+        @PathVariable String orderNo
+    ) {
+        return OrderResponse.from(orderPaymentService.payOrder(orderNo));
     }
 
     @PostMapping("/{orderNo}/cancel")

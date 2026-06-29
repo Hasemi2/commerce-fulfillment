@@ -106,8 +106,8 @@ class OrderControllerTest {
         assertEquals(2, histories.size());
         InventoryHistory keyboardHistory = findHistory(histories, keyboard);
         InventoryHistory mouseHistory = findHistory(histories, mouse);
-        assertReservationHistory(keyboardHistory, keyboard, savedOrder, 2, 10, 8);
-        assertReservationHistory(mouseHistory, mouse, savedOrder, 1, 5, 4);
+        assertReservationHistory(keyboardHistory, keyboard, savedOrder, 2, 10, 10);
+        assertReservationHistory(mouseHistory, mouse, savedOrder, 1, 5, 5);
 
         OutboxEvent outboxEvent = outboxEventRepository.findAll().getFirst();
         assertEquals(AggregateType.ORDER, outboxEvent.getAggregateType());
