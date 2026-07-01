@@ -45,6 +45,8 @@ server:
   port: 8080
 
 shopflow:
+  sample-data:
+    enabled: true
   kafka:
     topics:
       order-events: shopflow.order-events
