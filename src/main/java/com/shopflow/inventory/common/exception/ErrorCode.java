@@ -11,6 +11,7 @@ public enum ErrorCode {
     INVENTORY_NOT_REGISTERED(HttpStatus.CONFLICT, "Inventory is not registered for this product."),
     INVENTORY_ALREADY_EXISTS(HttpStatus.CONFLICT, "Inventory already exists for this product."),
     NOT_ENOUGH_STOCK(HttpStatus.CONFLICT, "Not enough stock is available."),
+    INVENTORY_LOCK_FAILED(HttpStatus.CONFLICT, "Failed to acquire inventory lock."),
     INVALID_ORDER_NO("Order number must not be blank."),
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "Order was not found."),
     INVALID_ORDER_DATE_RANGE("Order date range is invalid."),

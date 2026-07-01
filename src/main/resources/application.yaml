@@ -52,6 +52,9 @@ shopflow:
     port: 6379
     database: 0
     timeout-ms: 3000
+    lock:
+      wait-time-ms: 1000
+      lease-time-ms: 3000
   sample-data:
     enabled: true
   kafka:

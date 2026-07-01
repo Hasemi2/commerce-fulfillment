@@ -1,11 +1,7 @@
 package com.shopflow.inventory.order.presentation;
 
 import com.shopflow.inventory.common.response.ErrorResponse;
-import com.shopflow.inventory.order.application.OrderCancellationService;
-import com.shopflow.inventory.order.application.OrderCreateCommand;
-import com.shopflow.inventory.order.application.OrderPaymentService;
-import com.shopflow.inventory.order.application.OrderQueryService;
-import com.shopflow.inventory.order.application.OrderService;
+import com.shopflow.inventory.order.application.*;
 import com.shopflow.inventory.order.domain.Order;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -17,19 +13,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
 import java.net.URI;
 import java.time.LocalDate;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
-import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
 
 @RequiredArgsConstructor
 @RestController
@@ -37,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Order", description = "주문 API")
 public class OrderController {
 
-    private final OrderService orderService;
+    private final OrderLockFacade orderLockFacade;
     private final OrderQueryService orderQueryService;
     private final OrderCancellationService orderCancellationService;
     private final OrderPaymentService orderPaymentService;
@@ -72,7 +63,7 @@ public class OrderController {
         ),
         @ApiResponse(
             responseCode = "409",
-            description = "재고 미등록 또는 재고 부족",
+            description = "재고 미등록, 재고 부족 또는 재고 락 획득 실패",
             content = @Content(
                 schema = @Schema(implementation = ErrorResponse.class),
                 examples = {
@@ -86,6 +77,12 @@ public class OrderController {
                         name = "notEnoughStock",
                         value = """
                             {"code":"NOT_ENOUGH_STOCK","message":"Not enough stock is available."}
+                            """
+                    ),
+                    @ExampleObject(
+                        name = "inventoryLockFailed",
+                        value = """
+                            {"code":"INVENTORY_LOCK_FAILED","message":"Failed to acquire inventory lock."}
                             """
                     )
                 }
@@ -104,7 +101,7 @@ public class OrderController {
                 ))
                 .toList()
         );
-        Order order = orderService.createOrder(command);
+        Order order = orderLockFacade.createOrder(command);
         OrderResponse response = OrderResponse.from(order);
         return ResponseEntity.created(URI.create("/api/orders/" + response.id())).body(response);
     }
