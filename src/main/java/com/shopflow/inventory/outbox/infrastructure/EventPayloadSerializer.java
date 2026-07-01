@@ -19,4 +19,14 @@ public class EventPayloadSerializer {
             );
         }
     }
+
+    public <T> T deserialize(String payload, Class<T> type) {
+        try {
+            return objectMapper.readValue(payload, type);
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Failed to deserialize event payload.", e
+            );
+        }
+    }
 }
