@@ -45,6 +45,13 @@ server:
   port: 8080
 
 shopflow:
+  redis:
+    redisson:
+      enabled: true
+    host: 127.0.0.1
+    port: 6379
+    database: 0
+    timeout-ms: 3000
   sample-data:
     enabled: true
   kafka:
