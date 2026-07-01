@@ -19,7 +19,9 @@ public enum ErrorCode {
     INVALID_ORDER_STATUS_TRANSITION(HttpStatus.CONFLICT, "Order status transition is not allowed."),
     EMPTY_ORDER_ITEMS("Order must contain at least one item."),
     INVALID_EVENT("Event information is invalid."),
-    INVALID_DELIVERY_REQUEST("Delivery request is invalid.");
+    DELIVERY_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "Delivery request was not found."),
+    INVALID_DELIVERY_REQUEST("Delivery request is invalid."),
+    INVALID_DELIVERY_STATUS_TRANSITION(HttpStatus.CONFLICT, "Delivery status transition is not allowed.");
 
     private final HttpStatus status;
     private final String message;

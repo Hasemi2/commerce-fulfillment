@@ -47,6 +47,13 @@ public class DeliveryRequest {
     @Column(nullable = false)
     private LocalDateTime requestedAt;
 
+    private LocalDateTime sentAt;
+
+    private LocalDateTime failedAt;
+
+    @Column(length = 1000)
+    private String lastFailureReason;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -66,8 +73,36 @@ public class DeliveryRequest {
         return new DeliveryRequest(orderId, orderNo, memberId);
     }
 
-    public void fail() {
+    public void markSent() {
+        if (this.status != DeliveryStatus.REQUESTED && this.status != DeliveryStatus.FAILED) {
+            throw new BusinessException(ErrorCode.INVALID_DELIVERY_STATUS_TRANSITION);
+        }
+        this.status = DeliveryStatus.SENT;
+        this.sentAt = LocalDateTime.now();
+        this.failedAt = null;
+        this.lastFailureReason = null;
+    }
+
+    public void markFailed(String reason) {
+        if (this.status == DeliveryStatus.SENT) {
+            throw new BusinessException(ErrorCode.INVALID_DELIVERY_STATUS_TRANSITION);
+        }
         this.status = DeliveryStatus.FAILED;
+        this.failedAt = LocalDateTime.now();
+        this.lastFailureReason = resolveFailureReason(reason);
+    }
+
+    public void validateRetryable() {
+        if (this.status != DeliveryStatus.FAILED) {
+            throw new BusinessException(ErrorCode.INVALID_DELIVERY_STATUS_TRANSITION);
+        }
+    }
+
+    private String resolveFailureReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return "Unknown delivery send failure.";
+        }
+        return reason.length() > 1000 ? reason.substring(0, 1000) : reason;
     }
 
     private static void validate(Long orderId, String orderNo, Long memberId) {

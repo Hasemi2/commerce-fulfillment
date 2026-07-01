@@ -1,10 +1,13 @@
-package com.shopflow.inventory.delivery.application;
+package com.shopflow.inventory.delivery.presentation;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.shopflow.inventory.delivery.application.DeliveryClient;
+import com.shopflow.inventory.delivery.application.DeliveryRequestService;
 import com.shopflow.inventory.delivery.domain.DeliveryRequest;
-import com.shopflow.inventory.delivery.domain.DeliveryStatus;
 import com.shopflow.inventory.delivery.infrastructure.DeliveryRequestRepository;
 import com.shopflow.inventory.event.infrastructure.ProcessedEventRepository;
 import com.shopflow.inventory.inventory.domain.Inventory;
@@ -13,7 +16,6 @@ import com.shopflow.inventory.order.application.OrderCreateCommand;
 import com.shopflow.inventory.order.application.OrderPaymentService;
 import com.shopflow.inventory.order.application.OrderService;
 import com.shopflow.inventory.order.domain.Order;
-import com.shopflow.inventory.order.domain.OrderStatus;
 import com.shopflow.inventory.order.infrastructure.OrderRepository;
 import com.shopflow.inventory.outbox.application.message.OutboxEventMessage;
 import com.shopflow.inventory.outbox.domain.EventType;
@@ -27,13 +29,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
-class DeliveryRequestServiceTest {
+@AutoConfigureMockMvc
+class DeliveryControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @Autowired
     private DeliveryRequestService deliveryRequestService;
@@ -77,81 +85,49 @@ class DeliveryRequestServiceTest {
     }
 
     @Test
-    @DisplayName("ORDER_PAID 이벤트 처리 시 배송 요청이 생성된다")
-    void createDeliveryRequestWhenOrderPaidEventIsConsumed() {
+    @DisplayName("주문번호로 배송 요청을 조회한다")
+    void getDeliveryRequestByOrderNo() throws Exception {
         Order paidOrder = createPaidOrder();
         OutboxEvent paidEvent = findPaidOutboxEvent(paidOrder.getOrderNo());
-
         deliveryRequestService.requestDelivery(OutboxEventMessage.from(paidEvent));
 
-        DeliveryRequest deliveryRequest = deliveryRequestRepository
-            .findByOrderNo(paidOrder.getOrderNo())
-            .orElseThrow();
-        Order deliveryRequestedOrder = orderRepository
-            .findByOrderNo(paidOrder.getOrderNo())
-            .orElseThrow();
-
-        assertEquals(paidOrder.getId(), deliveryRequest.getOrderId());
-        assertEquals(paidOrder.getOrderNo(), deliveryRequest.getOrderNo());
-        assertEquals(paidOrder.getMemberId(), deliveryRequest.getMemberId());
-        assertEquals(DeliveryStatus.SENT, deliveryRequest.getStatus());
-        assertEquals(OrderStatus.DELIVERY_REQUESTED, deliveryRequestedOrder.getStatus());
-        assertEquals(1, processedEventRepository.countByEventId(paidEvent.getEventId()));
+        mockMvc.perform(get("/api/deliveries/orders/{orderNo}", paidOrder.getOrderNo()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.orderNo").value(paidOrder.getOrderNo()))
+            .andExpect(jsonPath("$.status").value("SENT"));
     }
 
     @Test
-    @DisplayName("배송사 전송 실패 시 배송 요청은 FAILED 상태로 저장된다")
-    void markDeliveryRequestFailedWhenClientSendFails() {
-        testDeliveryClient.fail("delivery api timeout");
-        Order paidOrder = createPaidOrder();
-        OutboxEvent paidEvent = findPaidOutboxEvent(paidOrder.getOrderNo());
-
-        deliveryRequestService.requestDelivery(OutboxEventMessage.from(paidEvent));
-
-        DeliveryRequest deliveryRequest = deliveryRequestRepository
-            .findByOrderNo(paidOrder.getOrderNo())
-            .orElseThrow();
-        Order order = orderRepository.findByOrderNo(paidOrder.getOrderNo()).orElseThrow();
-
-        assertEquals(DeliveryStatus.FAILED, deliveryRequest.getStatus());
-        assertEquals("delivery api timeout", deliveryRequest.getLastFailureReason());
-        assertEquals(OrderStatus.PAID, order.getStatus());
-        assertEquals(1, processedEventRepository.countByEventId(paidEvent.getEventId()));
-    }
-
-    @Test
-    @DisplayName("실패 배송 요청 재시도 성공 시 SENT 상태로 변경된다")
-    void retryFailedDeliveryRequest() {
+    @DisplayName("배송 상태로 배송 요청 목록을 조회한다")
+    void getDeliveryRequestsByStatus() throws Exception {
         testDeliveryClient.fail("delivery api timeout");
         Order paidOrder = createPaidOrder();
         OutboxEvent paidEvent = findPaidOutboxEvent(paidOrder.getOrderNo());
         deliveryRequestService.requestDelivery(OutboxEventMessage.from(paidEvent));
 
+        mockMvc.perform(get("/api/deliveries").param("status", "FAILED"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].orderNo").value(paidOrder.getOrderNo()))
+            .andExpect(jsonPath("$[0].status").value("FAILED"))
+            .andExpect(jsonPath("$[0].lastFailureReason").value("delivery api timeout"));
+    }
+
+    @Test
+    @DisplayName("실패한 배송 요청을 재시도한다")
+    void retryFailedDeliveryRequest() throws Exception {
+        testDeliveryClient.fail("delivery api timeout");
+        Order paidOrder = createPaidOrder();
+        OutboxEvent paidEvent = findPaidOutboxEvent(paidOrder.getOrderNo());
+        deliveryRequestService.requestDelivery(OutboxEventMessage.from(paidEvent));
         DeliveryRequest failedRequest = deliveryRequestRepository
             .findByOrderNo(paidOrder.getOrderNo())
             .orElseThrow();
         testDeliveryClient.reset();
 
-        DeliveryRequest retriedRequest = deliveryRequestService.retryDelivery(failedRequest.getId());
-        Order order = orderRepository.findByOrderNo(paidOrder.getOrderNo()).orElseThrow();
-
-        assertEquals(DeliveryStatus.SENT, retriedRequest.getStatus());
-        assertNull(retriedRequest.getLastFailureReason());
-        assertEquals(OrderStatus.DELIVERY_REQUESTED, order.getStatus());
-    }
-
-    @Test
-    @DisplayName("이미 처리한 ORDER_PAID 이벤트는 배송 요청을 중복 생성하지 않는다")
-    void skipDuplicateOrderPaidEvent() {
-        Order paidOrder = createPaidOrder();
-        OutboxEvent paidEvent = findPaidOutboxEvent(paidOrder.getOrderNo());
-        OutboxEventMessage message = OutboxEventMessage.from(paidEvent);
-
-        deliveryRequestService.requestDelivery(message);
-        deliveryRequestService.requestDelivery(message);
-
-        assertEquals(1, deliveryRequestRepository.countByOrderNo(paidOrder.getOrderNo()));
-        assertEquals(1, processedEventRepository.countByEventId(paidEvent.getEventId()));
+        mockMvc.perform(post("/api/deliveries/{deliveryRequestId}/retry", failedRequest.getId()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(failedRequest.getId()))
+            .andExpect(jsonPath("$.status").value("SENT"));
     }
 
     private Order createPaidOrder() {
@@ -174,7 +150,7 @@ class DeliveryRequestServiceTest {
     }
 
     @TestConfiguration
-    static class DeliveryRequestServiceTestConfig {
+    static class DeliveryControllerTestConfig {
 
         @Bean
         @Primary
