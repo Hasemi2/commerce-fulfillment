@@ -1,6 +1,17 @@
 # Architecture
 
-이 문서는 Shopflow Order Inventory의 주요 설계 선택과 처리 흐름을 정리합니다.
+이 문서는 Shopflow Order Inventory의 주요 설계 선택과 처리 흐름을 정리합니다. 프로젝트 범위와 문서 인덱스는 루트 [ARCHITECTURE.md](../ARCHITECTURE.md)를 참고합니다.
+
+## Project Boundary
+
+현재 프로젝트는 실서비스 결제·배송 시스템 전체가 아니라 `Order → Kafka → DeliveryRequest → 외부 배송 요청 실패/재처리` 흐름을 학습하기 위한 토이 프로젝트입니다.
+
+- 실제 PG와 별도 Payment Domain은 구현하지 않습니다.
+- 배송 연동은 `MockDeliveryClient`까지만 다룹니다.
+- 배송 실패는 주문 상태에 전파하지 않고 `DeliveryRequest`에서 독립 관리합니다.
+- 배송 재시도는 횟수 제한 없는 운영자 수동 재시도만 지원합니다.
+- `ProcessedEvent`는 단일 이벤트-단일 Consumer를 가정하여 `eventId` 단독 unique constraint를 사용합니다.
+- 현재 범위를 넘어가는 운영 정책은 `Future Considerations`에만 기록하고 선제 구현하지 않습니다.
 
 ## Package Structure
 
@@ -290,10 +301,14 @@ Monitor / 259000 / 1000
 shopflow.sample-data.enabled=false
 ```
 
-## Remaining Ideas
+## Future Considerations
 
-- `ProcessedEvent`에 `PROCESSED`, `SKIPPED_DUPLICATE` 같은 처리 결과 추가
+- 다중 독립 Consumer가 필요할 때 `(eventId, consumerName 또는 handlerName)` 복합 유일키 적용
 - Outbox `DEAD_LETTER` 조회/재처리 API
 - 조건부 update 기반 재고 차감 방식 비교
-- 실제 배송사 HTTP client와 MockWebServer 테스트
+- 실제 PG 연동과 Payment Domain
+- 실제 배송사 HTTP client, 멱등키 계약과 MockWebServer 테스트
+- 배송 자동 재시도, 최대 횟수와 backoff
+- Shipment Domain과 Tracking Event
+- 배송 시작 이후 취소, 반품 및 환불
 - Testcontainers 기반 Redis/Kafka 통합 테스트
