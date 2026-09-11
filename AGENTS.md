@@ -1,84 +1,32 @@
 # AGENTS.md
 
-## Project Context
+## Purpose
 
-This project is **Shopflow**, a commerce order-inventory system.
+Shopflow는 상품, 재고, 주문, 이벤트 발행과 배송 요청 흐름을 학습하기 위한 commerce order-inventory 프로젝트다.
 
-The goal is to implement and evolve the following flow:
+이 프로젝트는 다음 주제에 집중한다.
 
-- Product registration
-- Inventory registration
-- Order creation
-- Stock reservation
-- Order cancellation
-- Stock restoration
-- Future outbox-based event publishing
-- Future delivery request integration
-- Future event retry and failure tracking
+- 주문 생성 시 재고 선점과 초과 차감 방지
+- 주문 상태 전이와 취소 시 예약 재고 복원
+- 결제 완료 시 예약 재고 최종 차감
+- 재고 변경 이력 추적
+- Transactional Outbox 기반 Kafka 이벤트 발행
+- Kafka Consumer 멱등 처리
+- 외부 배송 요청 실패 저장과 수동 재처리
+- Redis Lock을 이용한 주문 생성 동시성 제어
 
-This project should focus on practical commerce backend concerns such as:
+실서비스 결제·배송 플랫폼 전체를 구현하는 것이 목적은 아니다. 현재 범위를 넘어서는 기능은 요구사항 없이 선제적으로 구현하지 않는다.
 
-- Preventing stock over-deduction
-- Managing order status transitions
-- Keeping inventory changes traceable
-- Handling external integration failure
-- Preparing for event-driven processing
-- Keeping business rules testable
+## Source of Truth
 
----
+- 실행되는 Source와 설정이 최종 Source of Truth다.
+- 현재 동작은 `src/main`, `src/test`, `build.gradle`, `application.yaml`에서 확인한다.
+- 문서는 설계 의도와 작업 Context를 제공하지만 Source보다 우선하지 않는다.
+- Source와 문서가 충돌하면 임의로 한쪽을 선택하거나 조용히 수정하지 않는다.
+- 충돌한 위치, 실제 Source 동작, 영향 범위를 사용자에게 보고하고 방향을 확인한다.
+- Source에서 확인할 수 없는 정책이나 요구사항은 추측하지 않고 `확인 필요`로 표시한다.
 
-## Tech Stack
-
-- Java 21
-- Spring Boot
-- Spring Web
-- Spring Validation
-- Spring Data JPA
-- H2 for local development
-- JUnit5
-- Lombok
-
-Future candidates:
-
-- Kafka
-- Redis
-- Outbox Pattern
-- Testcontainers
-- MockWebServer
-- Spring Scheduler
-- Spring Batch
-
----
-
-## Current Environment
-
-The current local development environment uses H2 instead of Docker-based MySQL/Redis/Kafka.
-
-Do not assume Docker is available.
-
-Current local DB:
-
-```yaml
-spring:
-  datasource:
-    url: jdbc:h2:mem:shopflow;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
-    username: sa
-    password:
-    driver-class-name: org.h2.Driver
-```
-
-Docker Compose support should remain disabled unless explicitly requested:
-
-```yaml
-spring:
-  docker:
-    compose:
-      enabled: false
-```
-
----
-
-## Package Convention
+## Current Domains
 
 Base package:
 
@@ -86,16 +34,19 @@ Base package:
 com.shopflow.inventory
 ```
 
-Start with these main domains:
+현재 주요 영역:
 
-```text
-product
-inventory
-order
-common
-```
+| Area | Responsibility |
+|---|---|
+| `product` | 상품 기준 정보와 판매 상태 |
+| `inventory` | 판매 가능/예약 재고와 변경 이력 |
+| `order` | 주문, 주문 항목, 상태 전이와 재고 처리 조정 |
+| `outbox` | 비즈니스 이벤트 저장, Kafka 발행 상태와 재시도 |
+| `event` | Consumer 처리 이벤트 기록 |
+| `delivery` | 배송 요청, 실패 사유와 수동 재시도 |
+| `common` | 공통 설정, 예외와 API 오류 응답 |
 
-Each domain should roughly follow this structure:
+패키지는 domain/capability 기준으로 구성한다. 각 영역 안에서는 필요한 경우에만 다음 레이어를 사용한다.
 
 ```text
 domain
@@ -104,432 +55,130 @@ presentation
 infrastructure
 ```
 
-Example:
+비어 있거나 미래 사용만을 가정한 패키지와 레이어를 만들지 않는다.
 
-```text
-com.shopflow.order_inventory
- ├─ product
- │   ├─ domain
- │   ├─ application
- │   ├─ presentation
- │   └─ infrastructure
- │
- ├─ inventory
- │   ├─ domain
- │   ├─ application
- │   ├─ presentation
- │   └─ infrastructure
- │
- ├─ order
- │   ├─ domain
- │   ├─ application
- │   ├─ presentation
- │   └─ infrastructure
- │
- └─ common
-     ├─ exception
-     ├─ response
-     └─ config
-```
+## Context Router
 
-Add these later only when needed:
+작업 전에 변경 영역에 해당하는 Source와 아래 문서를 함께 확인한다.
 
-```text
-payment
-delivery
-outbox
-event
-```
+| Context | Document |
+|---|---|
+| 프로젝트 소개와 로컬 실행 | `README.md` |
+| 전체 구조와 문서 인덱스 | `ARCHITECTURE.md` |
+| 상세 구조와 주요 처리 흐름 | `docs/ARCHITECTURE.md` |
+| 현재 포함/제외 범위 | `docs/architecture/current-scope.md` |
+| Kafka, Outbox, Delivery 흐름 | `docs/architecture/event-delivery-flow.md` |
+| Product 정책과 알려진 누락 | `docs/domain/product.md` |
+| Order/OrderItem 정책 | `docs/domain/order.md` |
+| ProcessedEvent 정책 | `docs/domain/processed-event.md` |
+| DeliveryRequest 정책 | `docs/domain/delivery-request.md` |
+| Payment Domain 제외 결정 | `docs/decisions/ADR-001-no-payment-domain.md` |
+| ProcessedEvent 유일키 결정 | `docs/decisions/ADR-002-processed-event-unique-key.md` |
+| 배송 실패 독립 관리 결정 | `docs/decisions/ADR-003-independent-delivery-failure.md` |
 
----
+현재 dependency와 버전은 `build.gradle`, 런타임 설정은 `src/main/resources/application.yaml`, 테스트 설정은 `src/test/resources/application.properties`에서 직접 확인한다.
 
-## Coding Rules
+## Before Making Changes
+
+1. 사용자의 현재 요구사항과 명시적인 제외 범위를 확인한다.
+2. 변경 대상 Source, 호출 경로, 관련 테스트를 읽는다.
+3. Context Router에서 관련 문서와 ADR을 확인한다.
+4. 영향을 받는 Domain, API, Transaction, Inventory, Event, Lock, 외부 연동 범위를 분석한다.
+5. 기존 공개 API, 상태 전이, DB 제약, 이벤트 계약과의 호환성을 확인한다.
+6. 요구사항을 만족하는 가장 작은 변경 단위를 정한다.
+7. 확인되지 않은 운영 정책이나 미래 구조를 임의로 추가하지 않는다.
+
+## Implementation Guardrails
 
 ### General
 
-- Keep code simple and readable.
-- Do not over-engineer early phases.
-- Prefer clear domain names over generic names.
-- Do not add unnecessary dependencies.
-- Do not introduce Kafka, Redis, Docker, Security, or Batch unless the task explicitly asks for it.
-- Keep business logic out of controllers.
-- Keep persistence-specific concerns out of controllers.
-- Prefer small, focused classes over large service classes.
-- Do not mix unrelated domain logic in one service.
-
----
-
-### Entity Rules
-
-- Do not expose JPA entities directly from controller responses.
-- Use request and response DTOs.
-- Avoid public setters in domain entities.
-- Change domain state through domain methods.
-- Use constructors or static factory methods for valid entity creation.
-- Protect invariants inside the domain entity when possible.
-- Do not rely only on request validation for business safety.
-- Use meaningful enum names for status and type fields.
-
-Good example:
-
-```java
-public void reserve(int quantity) {
-    if (quantity <= 0) {
-        throw new InvalidQuantityException();
-    }
-
-    if (availableQuantity < quantity) {
-        throw new NotEnoughStockException();
-    }
-
-    this.availableQuantity -= quantity;
-    this.reservedQuantity += quantity;
-}
-```
-
-Avoid:
-
-```java
-inventory.setAvailableQuantity(inventory.getAvailableQuantity() - quantity);
-```
-
----
-
-### DTO Rules
-
-- Use request DTOs for API input.
-- Use response DTOs for API output.
-- Do not reuse entity classes as API responses.
-- Apply Bean Validation to request DTOs.
-- Keep DTO names explicit.
-
-Examples:
-
-```text
-ProductCreateRequest
-ProductResponse
-InventoryCreateRequest
-InventoryResponse
-OrderCreateRequest
-OrderResponse
-```
-
----
-
-### Validation Rules
-
-- Validate simple input rules in request DTOs.
-- Validate business rules in domain/application logic.
-- Do not trust client input.
-- Quantity must be greater than zero.
-- Price must be greater than zero.
-- Required fields must not be blank or null.
-
-Example:
-
-```java
-@NotBlank
-private String name;
-
-@NotNull
-@Positive
-private BigDecimal price;
-```
-
----
-
-### Exception Rules
-
-- Use meaningful business exceptions.
-- Do not throw raw `RuntimeException` for expected business failures.
-- Keep exception messages clear.
-- Use a global exception handler for consistent API errors.
-- Do not leak internal stack traces in API responses.
-
-Recommended common structure:
-
-```text
-common
- └─ exception
-     ├─ BusinessException
-     ├─ ErrorCode
-     └─ GlobalExceptionHandler
-```
-
----
-
-### Controller Rules
-
-- Controllers should only handle HTTP request/response concerns.
-- Controllers should delegate business logic to application services.
-- Controllers should not access repositories directly.
-- Controllers should not return entities.
-- Use proper HTTP status codes.
-
-Example:
-
-```java
-@PostMapping
-public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductCreateRequest request) {
-    ProductResponse response = productService.createProduct(request);
-    return ResponseEntity.status(HttpStatus.CREATED).body(response);
-}
-```
-
----
-
-### Service Rules
-
-- Application services coordinate use cases.
-- Application services may use repositories.
-- Application services should keep transaction boundaries clear.
-- Business state changes should be done through domain methods.
-- Use `@Transactional` on write use cases.
-- Use `@Transactional(readOnly = true)` on read use cases.
-
----
-
-### Repository Rules
-
-- Keep repository interfaces simple.
-- Do not put business logic in repositories.
-- Use custom queries only when needed.
-- Start with Spring Data JPA methods before introducing QueryDSL.
-
----
-
-### Test Rules
-
-- Add or update tests when changing business logic.
-- Test important domain rules.
-- Test validation failures where useful.
-- Test stock reservation and restoration carefully.
-- Add concurrency tests when implementing stock reservation.
-- Test names may use Korean `@DisplayName`.
-
-Priority test cases:
-
-```text
-상품 등록 성공
-상품 가격이 0 이하이면 실패
-재고 등록 성공
-재고 수량이 음수이면 실패
-주문 생성 성공
-재고 부족 시 주문 생성 실패
-주문 생성 시 재고 선점
-주문 취소 시 재고 복원
-동시 주문 시 재고 초과 차감 방지
-```
-
----
-
-### Logging Rules
-
-- Use logs for important state changes.
-- Do not log sensitive information.
-- Log external integration failures.
-- Log retryable failures with enough context.
-- Avoid excessive logs in normal successful flows.
-
----
-
-### Future Event Rules
-
-When adding outbox/event features later:
-
-- Do not publish external events directly inside the main business transaction.
-- Save an outbox event in the same transaction as the business state change.
-- Publish events from a separate publisher.
-- Track event status.
-- Track retry count.
-- Store last failure reason.
-- Use eventId for idempotency.
-- Consumers should be safe against duplicate events.
-
-Candidate outbox statuses:
-
-```text
-INIT
-PUBLISHED
-FAILED
-RETRYING
-DEAD_LETTER
-```
-
----
-
-## Current Priority
-
-Current phase: **Product and Inventory MVP**.
-
-Build in this order:
-
-1. Product registration
-2. Product lookup
-3. Inventory registration
-4. Inventory lookup
-5. Order creation
-6. Stock reservation
-7. Order cancellation
-8. Stock restoration
-9. Inventory history
-10. Concurrency test
-
-Do not jump to Kafka, Redis, or external delivery integration before the basic order-inventory flow works.
-
----
-
-## Feature Roadmap
-
-### Phase 1. Basic Domain and API
-
-- Product Entity
-- Product registration API
-- Product lookup API
-- Inventory Entity
-- Inventory registration API
-- Inventory lookup API
-
-### Phase 2. Order and Stock Reservation
-
-- Order Entity
-- OrderItem Entity
-- Order creation API
-- Stock reservation
-- Stock shortage exception
-- Order lookup API
-
-### Phase 3. Cancel and Restore
-
-- Order cancellation API
-- Reserved stock restoration
-- Invalid order status transition prevention
-
-### Phase 4. Inventory History
-
-- InventoryHistory Entity
-- Stock change history
-- Reservation history
-- Restoration history
-- Manual adjustment history
-
-### Phase 5. Concurrency
-
-- Optimistic Lock
-- Pessimistic Lock comparison
-- Concurrent order test
-- Stock over-deduction prevention
-
-### Phase 6. Event and Outbox
-
-- OutboxEvent Entity
-- Event status management
-- Event publisher
-- Retry handling
-- Dead letter status
-
-### Phase 7. Delivery Mock
-
-- DeliveryRequest Entity
-- Mock delivery client
-- External API failure handling
-- Retry API
-- Failure reason classification
-
----
-
-## Build and Test Commands
-
-On Windows PowerShell:
-
-```bash
-./gradlew.bat test
-```
-
-On Git Bash, macOS, or Linux:
-
-```bash
-./gradlew test
-```
-
-Run application on Windows:
-
-```bash
-./gradlew.bat bootRun
-```
-
-Run application on Git Bash, macOS, or Linux:
-
-```bash
-./gradlew bootRun
-```
-
----
-
-## Done Criteria
-
-Before finishing a task, check:
-
-- Code compiles.
-- Tests pass.
-- Important business rules are tested.
-- No unnecessary dependency is added.
-- Controllers do not return JPA entities directly.
-- Domain state is changed through domain methods.
-- Public API response shape is explicit.
-- Request DTO validation exists where needed.
-- Business exceptions are meaningful.
-- H2 local execution still works.
-
----
-
-## Do Not Do
-
-- Do not add Spring Security in the early phase.
-- Do not add Kafka before the basic order-inventory flow works.
-- Do not add Redis before there is a real caching or locking need.
-- Do not add Docker assumptions while the current environment uses H2.
-- Do not return JPA entities from controllers.
-- Do not use public setters for domain state changes.
-- Do not hide business rules inside controllers.
-- Do not skip tests for stock-related logic.
-- Do not create large unrelated changes in one task.
-- Do not rename base packages unless explicitly requested.
-
----
-
-## AI Pairing Workflow
-
-For each feature:
-
-1. Read the current requirement.
-2. Check the current package structure.
-3. Implement the smallest useful change.
-4. Add or update tests.
-5. Run tests.
-6. Summarize changed files.
-7. Explain any design decision briefly.
-8. Mention follow-up tasks if needed.
-
-Preferred task size:
-
-```text
-One domain feature at a time.
-One use case at a time.
-One refactoring goal at a time.
-```
-
-Avoid broad tasks like:
-
-```text
-Build the whole commerce system.
-Implement all order, inventory, Kafka, and delivery features at once.
-```
-
-Prefer focused tasks like:
-
-```text
-Implement Product registration API.
-Implement Inventory reservation domain method.
-Add concurrency test for stock reservation.
-```
+- 코드를 단순하고 읽기 쉽게 유지한다.
+- 관련 없는 리팩터링이나 대규모 변경을 함께 수행하지 않는다.
+- 불필요한 dependency와 미래 기능을 추가하지 않는다.
+- Base package를 명시적 요청 없이 변경하지 않는다.
+- 기존 작업 트리의 사용자 변경을 보존한다.
+
+### Layer Boundaries
+
+- Controller는 HTTP 요청, 검증과 응답 변환만 담당한다.
+- Controller가 Repository에 직접 접근하지 않게 한다.
+- JPA Entity를 API 응답으로 직접 노출하지 않고 명시적인 DTO를 사용한다.
+- Application Service는 use case 조정과 transaction boundary를 담당한다.
+- Domain Entity는 불변조건과 상태 전이를 보호한다.
+- Domain 상태는 public setter가 아니라 의미 있는 도메인 메서드로 변경한다.
+- Repository에는 비즈니스 규칙을 넣지 않는다.
+
+### Validation and Errors
+
+- 단순 입력 형식은 Request DTO의 Bean Validation으로 검증한다.
+- 재고, 상태 전이와 같은 비즈니스 규칙은 Domain/Application 계층에서도 검증한다.
+- 예상 가능한 비즈니스 실패에는 `BusinessException`과 `ErrorCode`를 사용한다.
+- 내부 stack trace나 민감 정보를 API 응답과 로그에 노출하지 않는다.
+
+### Transactions and Events
+
+- 쓰기 use case의 transaction boundary를 명시적으로 유지한다.
+- 조회 use case에는 필요한 경우 `@Transactional(readOnly = true)`를 사용한다.
+- 외부 Kafka 이벤트를 핵심 비즈니스 트랜잭션에서 직접 발행하지 않는다.
+- 비즈니스 상태 변경과 OutboxEvent 저장은 같은 DB transaction에서 처리한다.
+- OutboxEvent 저장은 기존 transaction에 참여해야 한다.
+- Kafka Consumer 변경 시 비즈니스 처리와 ProcessedEvent 기록의 원자성 및 중복 전달 영향을 확인한다.
+- 현재 ProcessedEvent는 단일 이벤트-단일 Consumer를 가정하고 `eventId` 단독 unique constraint를 사용한다.
+- 동일 이벤트를 여러 독립 Consumer가 처리하는 구조를 요구 없이 도입하지 않는다.
+
+### Inventory and Concurrency
+
+- 재고 상태는 `Inventory` 도메인 메서드를 통해 변경한다.
+- 재고 변경 시 available/reserved 수량과 InventoryHistory를 함께 검토한다.
+- 주문 생성 경로의 상품별 Redis Lock 범위와 DB transaction 경계를 보존한다.
+- 다중 상품 락은 교착 가능성을 줄이도록 일관된 productId 순서로 획득한다.
+- 재고 관련 변경에는 동시 주문, 재고 부족, transaction rollback 영향을 확인한다.
+- 비관적 락, 낙관적 락, Redis Lock의 역할을 실제 호출 경로 확인 없이 서로 대체하지 않는다.
+
+### Current Scope Boundaries
+
+- 별도 Payment Domain이나 실제 PG 연동을 추가하지 않는다.
+- 배송 연동은 현재 `MockDeliveryClient` 범위다.
+- 배송 요청 실패는 `DeliveryRequest`에서 관리하며 주문 실패 상태로 전파하지 않는다.
+- 배송 재시도는 현재 횟수 제한 없는 수동 재시도다.
+- 자동 배송 재시도, Shipment Domain, 배송 Tracking은 Future Considerations다.
+- 현재 범위를 변경해야 하는 요청이면 관련 ADR과 문서의 변경 필요성을 함께 보고한다.
+
+## Verification
+
+변경 후 다음을 수행한다.
+
+1. 변경된 비즈니스 규칙에 대한 테스트를 추가하거나 수정한다.
+2. 가장 가까운 관련 테스트를 먼저 실행한다.
+3. 여러 Domain, transaction, event 또는 infrastructure 경계를 건드렸다면 전체 테스트를 실행한다.
+4. Windows에서는 `./gradlew.bat test`, Git Bash/macOS/Linux에서는 `./gradlew test`를 사용한다.
+5. 테스트를 실행할 수 없거나 실패하면 명령, 원인과 미검증 범위를 명확히 보고한다.
+6. H2 기반 테스트와 로컬 설정을 깨뜨리지 않았는지 확인한다.
+
+재고 관련 변경에서는 특히 다음을 확인한다.
+
+- 재고 부족 시 실패
+- 주문 생성 시 재고 선점
+- 주문 취소 시 예약 재고 복원
+- 결제 완료 시 예약 재고 차감
+- transaction 실패 시 관련 변경 rollback
+- 동시 주문 시 재고 초과 선점 방지
+
+## Documentation Sync
+
+- Source 변경 후 관련 `README.md`, Architecture, Domain 문서와 ADR의 현행화 필요성을 확인한다.
+- 현재 구현은 `Current Scope`, 아직 구현하지 않은 가능성은 `Future Considerations`로 구분한다.
+- 구현되지 않은 기능을 현재 기능처럼 문서화하지 않는다.
+- 이미 구현된 기능을 미래 로드맵으로 남겨두지 않는다.
+- 설계 결정이 바뀌면 관련 ADR을 삭제하거나 조용히 덮어쓰지 않고 상태와 변경 이유를 기록한다.
+- 문서만 변경한 경우 코드 테스트가 필요하지 않을 수 있지만 링크, 경로와 Source 일치 여부는 검증한다.
+
+## Completion Report
+
+작업 완료 시 다음을 간결하게 보고한다.
+
+- 변경한 파일과 핵심 동작
+- 주요 설계 판단과 영향 범위
+- 실행한 테스트와 결과
+- 갱신한 문서 또는 문서 변경이 불필요한 이유
+- 남은 `확인 필요` 항목과 후속 작업
